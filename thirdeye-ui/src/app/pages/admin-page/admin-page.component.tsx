@@ -1,5 +1,5 @@
 /*
- * Copyright 2023 StarTree Inc
+ * Copyright 2025 StarTree Inc
  *
  * Licensed under the StarTree Community License (the "License"); you may not use
  * this file except in compliance with the License. You may obtain a copy of the
@@ -12,27 +12,16 @@
  * See the License for the specific language governing permissions and limitations under
  * the License.
  */
-import { Grid } from "@material-ui/core";
-import { default as React, FunctionComponent } from "react";
-import { useTranslation } from "react-i18next";
-import { RecentFailures } from "../../components/admin-page/recent-failures/recent-failures.component";
-import { PageHeader } from "../../components/page-header/page-header.component";
-import { PageContentsGridV1, PageV1 } from "../../platform/components";
+import React from "react";
+import { PageV1 } from "../../platform/components";
+import { IsolationForest } from "./IsolationForest";
+import { MatrixProfile } from "./MatrixProfile";
 
-export const AdminPage: FunctionComponent = () => {
-    const { t } = useTranslation();
-
+export const AdminPage: React.FunctionComponent = () => {
     return (
         <PageV1>
-            <PageHeader
-                transparentBackground
-                title={t("label.admin-dashboard")}
-            />
-            <PageContentsGridV1>
-                <Grid item xs={12}>
-                    <RecentFailures />
-                </Grid>
-            </PageContentsGridV1>
+            <IsolationForest />
+            <MatrixProfile />
         </PageV1>
     );
 };
