@@ -24,54 +24,44 @@ interface ChartDataPoint {
 }
 
 // Tipagem para o payload da requisição
-interface IsolationForestPayload {
+interface MatrixProfilePayload {
     prom_query: string;
     end_time: string;
     query_duration_days: number;
     interval: string;
-    days_train: number;
-    contamination_level: number;
+    m: number;
+    std_multiplier: number;
 }
 
-export const IsolationForest: React.FC = () => {
-    // Estados tipados
+export const MatrixProfile: React.FC = () => {
+    // Estados tipados com valores padrão
     const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
     const [loading, setLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Inputs do formulário
+    // Inputs do formulário com valores padrão
     const [promQuery, setPromQuery] = useState<string>(
         "go_gc_heap_frees_bytes_total"
     );
     const [endTime, setEndTime] = useState<string>(
         new Date().toISOString().slice(0, 16)
     );
-    const [queryDurationDays, setQueryDurationDays] = useState<number>(1);
+    const [queryDurationDays, setQueryDurationDays] = useState<number>(4);
     const [interval, setInterval] = useState<string>("5m");
-    const [daysTrain, setDaysTrain] = useState<number>(1);
-    const [contaminationLevel, setContaminationLevel] = useState<number>(0.01);
+    const [m, setM] = useState<number>(8);
+    const [stdMultiplier, setStdMultiplier] = useState<number>(3.0);
 
-    const fetchIsolationForestData = async (): Promise<void> => {
-        // Validação dos inputs
+    // Função para buscar os dados do backend para Matrix Profile
+    const fetchMatrixProfileData = async (): Promise<void> => {
+        // Validação dos inputs (básica)
         if (
             !promQuery ||
             !interval ||
             queryDurationDays < 1 ||
-            daysTrain < 1 ||
-            daysTrain > queryDurationDays
+            m < 2 ||
+            stdMultiplier <= 0
         ) {
-            //setError("Preencha todos os campos corretamente!");
-            setError(
-                "A duração da consulta deve ser maior que os dias de treinamento para que haja dados para predição."
-            );
-            return;
-        }
-
-        if (queryDurationDays === daysTrain) {
-            // setError("A duração da consulta deve ser maior que os dias de treinamento para que haja dados para predição.");
-            setError(
-                "A duração da consulta deve ser maior que os dias de treinamento para que haja dados para predição."
-            );
+            setError("Preencha todos os campos corretamente!");
             return;
         }
 
@@ -79,20 +69,21 @@ export const IsolationForest: React.FC = () => {
         setError(null);
 
         try {
-            const payload: IsolationForestPayload = {
+            const payload: MatrixProfilePayload = {
                 prom_query: promQuery,
                 end_time: new Date(endTime).toISOString(),
                 query_duration_days: queryDurationDays,
                 interval: interval,
-                days_train: daysTrain,
-                contamination_level: contaminationLevel,
+                m: m,
+                std_multiplier: stdMultiplier,
             };
 
-            const response = await axios.post<{ data: ChartDataPoint[] }>(
-                "http://localhost:8003/isolation-forest",
+            // Note que ajustamos o tipo para que a resposta seja um array de ChartDataPoint
+            const response = await axios.post<ChartDataPoint[]>(
+                "http://localhost:8003/matrix-profile",
                 payload
             );
-            setChartData(response.data.data);
+            setChartData(response.data);
         } catch (err) {
             setError(
                 "Erro ao buscar os dados. Verifique os campos ou o servidor."
@@ -103,10 +94,10 @@ export const IsolationForest: React.FC = () => {
         }
     };
 
-    // Configuração do gráfico ECharts
+    // Configuração do gráfico ECharts (mesmo estilo do IsolationForest)
     const option = {
         title: {
-            text: "Detecção de Anomalias com Isolation Forest",
+            text: "Detecção de Anomalias com Matrix Profile",
             left: "center",
             textStyle: { color: "#333" },
         },
@@ -150,37 +141,25 @@ export const IsolationForest: React.FC = () => {
                 itemStyle: { color: "red" },
             },
         ],
-        // Destaca visualmente o período de treinamento
-        graphic:
-            chartData.length > 0
-                ? [
-                      {
-                          type: "rect",
-                          shape: {
-                              x: 0,
-                              y: 0,
-                              width: `${
-                                  (daysTrain / queryDurationDays) * 100
-                              }%`,
-                              height: "100%",
-                          },
-                          style: { fill: "rgba(128, 128, 128, 0.2)" },
-                          z: -1,
-                      },
-                  ]
-                : [],
     };
 
     return (
-        <div style={{ padding: "40px", maxWidth: "1200px", margin: "0 auto" }}>
+        <div
+            style={{
+                padding: "40px",
+                maxWidth: "1200px",
+                margin: "0 auto",
+                width: "100%",
+            }}
+        >
             <h1
                 style={{
                     textAlign: "center",
-                    color: "#4CAF50",
+                    color: "#0b263f",
                     marginBottom: "30px",
                 }}
             >
-                Isolation Forest - Gráfico de Anomalias
+                Matrix Profile - Detecção de Padrões
             </h1>
 
             {/* Formulário */}
@@ -206,6 +185,7 @@ export const IsolationForest: React.FC = () => {
                                 borderRadius: "4px",
                                 marginTop: "5px",
                             }}
+                            placeholder="Ex: go_gc_heap_frees_bytes_total"
                         />
                     </label>
 
@@ -257,19 +237,17 @@ export const IsolationForest: React.FC = () => {
                                 borderRadius: "4px",
                                 marginTop: "5px",
                             }}
+                            placeholder="Ex: 5m, 1h, etc."
                         />
                     </label>
 
                     <label style={{ fontWeight: "bold", color: "#333" }}>
-                        Dias de Treinamento (1 a {queryDurationDays}):
+                        Tamanho da Janela (m):
                         <input
                             type="number"
-                            min={1}
-                            max={queryDurationDays}
-                            value={daysTrain}
-                            onChange={(e) =>
-                                setDaysTrain(Number(e.target.value))
-                            }
+                            min={2}
+                            value={m}
+                            onChange={(e) => setM(Number(e.target.value))}
                             style={{
                                 width: "100%",
                                 padding: "8px",
@@ -281,45 +259,35 @@ export const IsolationForest: React.FC = () => {
                     </label>
 
                     <label style={{ fontWeight: "bold", color: "#333" }}>
-                        Nível de Contaminação (0.001 a 0.1):
-                        <div
+                        Multiplicador do Desvio Padrão:
+                        <input
+                            type="number"
+                            step={0.1}
+                            value={stdMultiplier}
+                            onChange={(e) =>
+                                setStdMultiplier(Number(e.target.value))
+                            }
                             style={{
-                                display: "flex",
-                                alignItems: "center",
+                                width: "100%",
+                                padding: "8px",
+                                border: "1px solid #ddd",
+                                borderRadius: "4px",
                                 marginTop: "5px",
                             }}
-                        >
-                            <input
-                                type="range"
-                                min="0.001"
-                                max="0.1"
-                                step="0.001"
-                                value={contaminationLevel}
-                                onChange={(e) =>
-                                    setContaminationLevel(
-                                        Number(e.target.value)
-                                    )
-                                }
-                                style={{ flex: 1 }}
-                            />
-                            <span
-                                style={{ marginLeft: "10px", minWidth: "50px" }}
-                            >
-                                {contaminationLevel.toFixed(3)}
-                            </span>
-                        </div>
+                        />
                     </label>
 
                     <button
-                        onClick={fetchIsolationForestData}
+                        onClick={fetchMatrixProfileData}
                         style={{
                             padding: "10px",
-                            backgroundColor: "#4CAF50",
+                            backgroundColor: "#0B263F",
                             color: "white",
                             border: "none",
                             borderRadius: "4px",
                             cursor: "pointer",
                             fontSize: "16px",
+                            marginTop: "10px",
                         }}
                     >
                         Buscar Dados
@@ -361,3 +329,5 @@ export const IsolationForest: React.FC = () => {
         </div>
     );
 };
+
+export default MatrixProfile;

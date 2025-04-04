@@ -12,56 +12,44 @@
  * See the License for the specific language governing permissions and limitations under
  * the License.
  */
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import axios from "axios";
 import ReactECharts from "echarts-for-react";
 
-// Tipagem para os dados retornados pelo backend
 interface ChartDataPoint {
     time: string;
     values: number;
     anomaly: boolean;
 }
 
-// Tipagem para o payload da requisição
-interface MatrixProfilePayload {
+interface ProphetPayload {
     prom_query: string;
     end_time: string;
     query_duration_days: number;
     interval: string;
-    m: number;
-    std_multiplier: number;
+    days_train: number;
 }
 
-export const MatrixProfile: React.FC = () => {
-    // Estados tipados com valores padrão
+export const Prophet: React.FC = () => {
     const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
     const [loading, setLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Inputs do formulário com valores padrão
     const [promQuery, setPromQuery] = useState<string>(
-        "go_gc_heap_frees_bytes_total"
+        "go_gc_duration_seconds"
     );
     const [endTime, setEndTime] = useState<string>(
         new Date().toISOString().slice(0, 16)
     );
-    const [queryDurationDays, setQueryDurationDays] = useState<number>(4);
+    const [queryDurationDays, setQueryDurationDays] = useState<number>(7);
     const [interval, setInterval] = useState<string>("5m");
-    const [m, setM] = useState<number>(8);
-    const [stdMultiplier, setStdMultiplier] = useState<number>(3.0);
+    const [daysTrain, setDaysTrain] = useState<number>(3);
 
-    // Função para buscar os dados do backend para Matrix Profile
-    const fetchMatrixProfileData = async (): Promise<void> => {
-        // Validação dos inputs (básica)
-        if (
-            !promQuery ||
-            !interval ||
-            queryDurationDays < 1 ||
-            m < 2 ||
-            stdMultiplier <= 0
-        ) {
-            setError("Preencha todos os campos corretamente!");
+    const fetchProphetData = async (signal: AbortSignal): Promise<void> => {
+        if (daysTrain >= queryDurationDays) {
+            setError(
+                "Dias de treinamento devem ser menores que a duração da consulta."
+            );
             return;
         }
 
@@ -69,67 +57,65 @@ export const MatrixProfile: React.FC = () => {
         setError(null);
 
         try {
-            const payload: MatrixProfilePayload = {
+            const payload: ProphetPayload = {
                 prom_query: promQuery,
                 end_time: new Date(endTime).toISOString(),
                 query_duration_days: queryDurationDays,
                 interval: interval,
-                m: m,
-                std_multiplier: stdMultiplier,
+                days_train: daysTrain,
             };
 
-            // Note que ajustamos o tipo para que a resposta seja um array de ChartDataPoint
-            const response = await axios.post<ChartDataPoint[]>(
-                "http://localhost:8003/matrix-profile",
-                payload
+            const response = await axios.post<{ data: ChartDataPoint[] }>(
+                "http://localhost:8003/prophet",
+                payload,
+                { signal }
             );
-            setChartData(response.data);
+
+            if (!signal.aborted) {
+                setChartData(response.data.data || []);
+            }
         } catch (err) {
-            setError(
-                "Erro ao buscar os dados. Verifique os campos ou o servidor."
-            );
-            console.error(err);
+            if (!signal.aborted) {
+                setError("Erro ao buscar os dados.");
+                console.error(err);
+            }
         } finally {
-            setLoading(false);
+            if (!signal.aborted) {
+                setLoading(false);
+            }
         }
     };
 
-    // Configuração do gráfico ECharts (mesmo estilo do IsolationForest)
+    useEffect(() => {
+        const controller = new AbortController();
+        return () => controller.abort();
+    }, []);
+
     const option = {
         title: {
-            text: "Detecção de Anomalias com Matrix Profile",
+            text: "Prophet - Previsão de Séries Temporais",
             left: "center",
-            textStyle: { color: "#333" },
         },
         tooltip: { trigger: "axis" },
         xAxis: {
             type: "time",
             axisLabel: {
-                formatter: (value: string): string => {
-                    const date = new Date(value);
-                    return date.toLocaleString("pt-BR", {
+                formatter: (value: string) =>
+                    new Date(value).toLocaleString("pt-BR", {
                         day: "2-digit",
                         month: "2-digit",
                         hour: "2-digit",
                         minute: "2-digit",
-                    });
-                },
+                    }),
             },
         },
-        yAxis: {
-            type: "value",
-            axisLabel: {
-                formatter: (value: number): string =>
-                    `${(value / 1e9).toFixed(2)}B`,
-            },
-        },
+        yAxis: { type: "value" },
         series: [
             {
-                name: "Dados",
+                name: "Data",
                 type: "line",
                 data: chartData.map((item) => [item.time, item.values]),
-                lineStyle: { color: "#8A05BE", width: 2 },
-                smooth: true,
+                lineStyle: { color: "#8A05BE", width: 1 },
             },
             {
                 name: "Anomalias",
@@ -137,25 +123,29 @@ export const MatrixProfile: React.FC = () => {
                 data: chartData
                     .filter((item) => item.anomaly)
                     .map((item) => [item.time, item.values]),
-                symbolSize: 10,
                 itemStyle: { color: "red" },
             },
         ],
     };
 
     return (
-        <div style={{ padding: "40px", maxWidth: "1200px", margin: "0 auto" }}>
+        <div
+            style={{
+                padding: "40px",
+                maxWidth: "1200px",
+                margin: "0 auto",
+                width: "100%",
+            }}
+        >
             <h1
                 style={{
                     textAlign: "center",
-                    color: "#4CAF50",
+                    color: "#0b263f",
                     marginBottom: "30px",
                 }}
             >
-                Matrix Profile - Detecção de Padrões
+                Prophet - Previsão de Séries Temporais
             </h1>
-
-            {/* Formulário */}
             <div
                 style={{
                     background: "#fff",
@@ -178,10 +168,8 @@ export const MatrixProfile: React.FC = () => {
                                 borderRadius: "4px",
                                 marginTop: "5px",
                             }}
-                            placeholder="Ex: go_gc_heap_frees_bytes_total"
                         />
                     </label>
-
                     <label style={{ fontWeight: "bold", color: "#333" }}>
                         Data de Fim:
                         <input
@@ -197,7 +185,6 @@ export const MatrixProfile: React.FC = () => {
                             }}
                         />
                     </label>
-
                     <label style={{ fontWeight: "bold", color: "#333" }}>
                         Duração da Consulta (dias):
                         <input
@@ -216,7 +203,6 @@ export const MatrixProfile: React.FC = () => {
                             }}
                         />
                     </label>
-
                     <label style={{ fontWeight: "bold", color: "#333" }}>
                         Intervalo:
                         <input
@@ -230,35 +216,17 @@ export const MatrixProfile: React.FC = () => {
                                 borderRadius: "4px",
                                 marginTop: "5px",
                             }}
-                            placeholder="Ex: 5m, 1h, etc."
                         />
                     </label>
-
                     <label style={{ fontWeight: "bold", color: "#333" }}>
-                        Tamanho da Janela (m):
+                        Dias de Treinamento (1 a {queryDurationDays - 1}):
                         <input
                             type="number"
-                            min={2}
-                            value={m}
-                            onChange={(e) => setM(Number(e.target.value))}
-                            style={{
-                                width: "100%",
-                                padding: "8px",
-                                border: "1px solid #ddd",
-                                borderRadius: "4px",
-                                marginTop: "5px",
-                            }}
-                        />
-                    </label>
-
-                    <label style={{ fontWeight: "bold", color: "#333" }}>
-                        Multiplicador do Desvio Padrão:
-                        <input
-                            type="number"
-                            step={0.1}
-                            value={stdMultiplier}
+                            min={1}
+                            max={queryDurationDays - 1}
+                            value={daysTrain}
                             onChange={(e) =>
-                                setStdMultiplier(Number(e.target.value))
+                                setDaysTrain(Number(e.target.value))
                             }
                             style={{
                                 width: "100%",
@@ -269,26 +237,24 @@ export const MatrixProfile: React.FC = () => {
                             }}
                         />
                     </label>
-
                     <button
-                        onClick={fetchMatrixProfileData}
+                        onClick={() =>
+                            fetchProphetData(new AbortController().signal)
+                        }
                         style={{
                             padding: "10px",
-                            backgroundColor: "#4CAF50",
+                            backgroundColor: "#0B263F",
                             color: "white",
                             border: "none",
                             borderRadius: "4px",
                             cursor: "pointer",
                             fontSize: "16px",
-                            marginTop: "10px",
                         }}
                     >
                         Buscar Dados
                     </button>
                 </div>
             </div>
-
-            {/* Mensagem de erro ou loading */}
             {error && (
                 <div
                     style={{
@@ -305,8 +271,6 @@ export const MatrixProfile: React.FC = () => {
                     Carregando...
                 </div>
             )}
-
-            {/* Gráfico */}
             {!loading && chartData.length > 0 && (
                 <div
                     style={{
@@ -322,5 +286,3 @@ export const MatrixProfile: React.FC = () => {
         </div>
     );
 };
-
-export default MatrixProfile;

@@ -14,9 +14,10 @@
  */
 import React from "react";
 import { PageV1 } from "../../platform/components";
-import { IsolationForest } from "./IsolationForest";
-import MatrixProfile from "./MatrixProfile";
-import { Prophet } from "./Prophet";
+import { IsolationForest } from "../../components/models/isolation-forest/isolation-forest.component";
+import MatrixProfile from "../../components/models/matrix-profile/matrix-profile.component";
+import { Prophet } from "../../components/models/prophet/prophet.component";
+import { ZScore } from "../../components/models/zscore/zscore.component";
 
 export const AdminPage: React.FunctionComponent = () => {
     return (
@@ -24,6 +25,7 @@ export const AdminPage: React.FunctionComponent = () => {
             <IsolationForest />
             <MatrixProfile />
             <Prophet />
+            <ZScore />
         </PageV1>
     );
 };

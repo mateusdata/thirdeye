@@ -12,7 +12,7 @@
  * See the License for the specific language governing permissions and limitations under
  * the License.
  */
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import axios from "axios";
 import ReactECharts from "echarts-for-react";
 
@@ -20,18 +20,20 @@ import ReactECharts from "echarts-for-react";
 interface ChartDataPoint {
     time: string;
     values: number;
+    anomaly: boolean;
 }
 
 // Tipagem para o payload da requisição
-interface ProphetPayload {
+interface IsolationForestPayload {
     prom_query: string;
     end_time: string;
     query_duration_days: number;
     interval: string;
     days_train: number;
+    contamination_level: number;
 }
 
-export const Prophet: React.FC = () => {
+export const IsolationForest: React.FC = () => {
     // Estados tipados
     const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
     const [loading, setLoading] = useState<boolean>(false);
@@ -39,25 +41,36 @@ export const Prophet: React.FC = () => {
 
     // Inputs do formulário
     const [promQuery, setPromQuery] = useState<string>(
-        "go_gc_duration_seconds"
+        "go_gc_heap_frees_bytes_total"
     );
     const [endTime, setEndTime] = useState<string>(
         new Date().toISOString().slice(0, 16)
     );
-    const [queryDurationDays, setQueryDurationDays] = useState<number>(7);
+    const [queryDurationDays, setQueryDurationDays] = useState<number>(2);
     const [interval, setInterval] = useState<string>("5m");
-    const [daysTrain, setDaysTrain] = useState<number>(3);
+    const [daysTrain, setDaysTrain] = useState<number>(1);
+    const [contaminationLevel, setContaminationLevel] = useState<number>(0.01);
 
-    const fetchProphetData = async (signal: AbortSignal): Promise<void> => {
+    const fetchIsolationForestData = async (): Promise<void> => {
+        // Validação dos inputs
         if (
             !promQuery ||
             !interval ||
             queryDurationDays < 1 ||
             daysTrain < 1 ||
-            daysTrain >= queryDurationDays
+            daysTrain > queryDurationDays
         ) {
+            //setError("Preencha todos os campos corretamente!");
             setError(
-                "A duração da consulta deve ser maior que os dias de treinamento."
+                "A duração da consulta deve ser maior que os dias de treinamento para que haja dados para predição."
+            );
+            return;
+        }
+
+        if (queryDurationDays === daysTrain) {
+            // setError("A duração da consulta deve ser maior que os dias de treinamento para que haja dados para predição.");
+            setError(
+                "A duração da consulta deve ser maior que os dias de treinamento para que haja dados para predição."
             );
             return;
         }
@@ -66,55 +79,34 @@ export const Prophet: React.FC = () => {
         setError(null);
 
         try {
-            const payload: ProphetPayload = {
+            const payload: IsolationForestPayload = {
                 prom_query: promQuery,
                 end_time: new Date(endTime).toISOString(),
                 query_duration_days: queryDurationDays,
                 interval: interval,
                 days_train: daysTrain,
+                contamination_level: contaminationLevel,
             };
 
             const response = await axios.post<{ data: ChartDataPoint[] }>(
-                "http://localhost:8003/prophet",
-                payload,
-                { signal }
+                "http://localhost:8003/isolation-forest",
+                payload
             );
-
-            // Só atualiza o estado se o componente ainda estiver montado
-            if (!signal.aborted) {
-                setChartData(
-                    Array.isArray(response.data.data) ? response.data.data : []
-                );
-            }
+            setChartData(response.data.data);
         } catch (err) {
-            if (!signal.aborted) {
-                setError(
-                    "Erro ao buscar os dados. Verifique os campos ou o servidor."
-                );
-                console.error(err);
-            }
+            setError(
+                "Erro ao buscar os dados. Verifique os campos ou o servidor."
+            );
+            console.error(err);
         } finally {
-            if (!signal.aborted) {
-                setLoading(false);
-            }
+            setLoading(false);
         }
     };
-
-    // useEffect para gerenciar o ciclo de vida do componente
-    useEffect(() => {
-        const controller = new AbortController();
-        const signal = controller.signal;
-
-        // Função para buscar dados (você pode chamá-la manualmente no botão)
-        return () => {
-            controller.abort(); // Cancela a requisição ao desmontar o componente
-        };
-    }, []); // Dependências vazias para rodar apenas na montagem/desmontagem
 
     // Configuração do gráfico ECharts
     const option = {
         title: {
-            text: "Previsão de Séries Temporais com Prophet",
+            text: "Detecção de Anomalias com Isolation Forest",
             left: "center",
             textStyle: { color: "#333" },
         },
@@ -142,28 +134,60 @@ export const Prophet: React.FC = () => {
         },
         series: [
             {
-                name: "Previsão",
+                name: "Dados",
                 type: "line",
-                // Garante que chartData seja um array antes de mapear
-                data: Array.isArray(chartData)
-                    ? chartData.map((item) => [item.time, item.values])
-                    : [],
-                lineStyle: { color: "#4CAF50", width: 2 },
+                data: chartData.map((item) => [item.time, item.values]),
+                lineStyle: { color: "#8A05BE", width: 2 },
                 smooth: true,
             },
+            {
+                name: "Anomalias",
+                type: "scatter",
+                data: chartData
+                    .filter((item) => item.anomaly)
+                    .map((item) => [item.time, item.values]),
+                symbolSize: 10,
+                itemStyle: { color: "red" },
+            },
         ],
+        // Destaca visualmente o período de treinamento
+        graphic:
+            chartData.length > 0
+                ? [
+                      {
+                          type: "rect",
+                          shape: {
+                              x: 0,
+                              y: 0,
+                              width: `${
+                                  (daysTrain / queryDurationDays) * 100
+                              }%`,
+                              height: "100%",
+                          },
+                          style: { fill: "rgba(128, 128, 128, 0.2)" },
+                          z: -1,
+                      },
+                  ]
+                : [],
     };
 
     return (
-        <div style={{ padding: "40px", maxWidth: "1200px", margin: "0 auto" }}>
+        <div
+            style={{
+                padding: "40px",
+                maxWidth: "1200px",
+                margin: "0 auto",
+                width: "100%",
+            }}
+        >
             <h1
                 style={{
                     textAlign: "center",
-                    color: "#4CAF50",
+                    color: "#0b263f",
                     marginBottom: "30px",
                 }}
             >
-                Prophet - Previsão de Séries Temporais
+                Isolation Forest - Gráfico de Anomalias
             </h1>
 
             {/* Formulário */}
@@ -244,11 +268,11 @@ export const Prophet: React.FC = () => {
                     </label>
 
                     <label style={{ fontWeight: "bold", color: "#333" }}>
-                        Dias de Treinamento (1 a {queryDurationDays - 1}):
+                        Dias de Treinamento (1 a {queryDurationDays}):
                         <input
                             type="number"
                             min={1}
-                            max={queryDurationDays - 1}
+                            max={queryDurationDays}
                             value={daysTrain}
                             onChange={(e) =>
                                 setDaysTrain(Number(e.target.value))
@@ -263,13 +287,41 @@ export const Prophet: React.FC = () => {
                         />
                     </label>
 
+                    <label style={{ fontWeight: "bold", color: "#333" }}>
+                        Nível de Contaminação (0.001 a 0.1):
+                        <div
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                marginTop: "5px",
+                            }}
+                        >
+                            <input
+                                type="range"
+                                min="0.001"
+                                max="0.1"
+                                step="0.001"
+                                value={contaminationLevel}
+                                onChange={(e) =>
+                                    setContaminationLevel(
+                                        Number(e.target.value)
+                                    )
+                                }
+                                style={{ flex: 1 }}
+                            />
+                            <span
+                                style={{ marginLeft: "10px", minWidth: "50px" }}
+                            >
+                                {contaminationLevel.toFixed(3)}
+                            </span>
+                        </div>
+                    </label>
+
                     <button
-                        onClick={() =>
-                            fetchProphetData(new AbortController().signal)
-                        }
+                        onClick={fetchIsolationForestData}
                         style={{
                             padding: "10px",
-                            backgroundColor: "#4CAF50",
+                            backgroundColor: "#0B263F",
                             color: "white",
                             border: "none",
                             borderRadius: "4px",
@@ -301,7 +353,7 @@ export const Prophet: React.FC = () => {
             )}
 
             {/* Gráfico */}
-            {!loading && Array.isArray(chartData) && chartData.length > 0 && (
+            {!loading && chartData.length > 0 && (
                 <div
                     style={{
                         marginTop: "30px",

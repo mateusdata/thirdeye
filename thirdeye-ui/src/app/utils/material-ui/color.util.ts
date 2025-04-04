@@ -28,7 +28,7 @@ export const Color = {
     GREEN_2: "#15C39B",
     GREEN_3: "#008757",
     GREEN_4: "#81c784",
-    GREEN_5: "#4caf50",
+    GREEN_5: "#0b263f",
     GREEN_6: "#388e3c",
     GREEN_7: "#20A927",
     RED_1: "#E57373",
