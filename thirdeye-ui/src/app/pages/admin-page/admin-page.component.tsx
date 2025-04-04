@@ -16,12 +16,14 @@ import React from "react";
 import { PageV1 } from "../../platform/components";
 import { IsolationForest } from "./IsolationForest";
 import MatrixProfile from "./MatrixProfile";
+import { Prophet } from "./Prophet";
 
 export const AdminPage: React.FunctionComponent = () => {
     return (
         <PageV1>
             <IsolationForest />
             <MatrixProfile />
+            <Prophet />
         </PageV1>
     );
 };
