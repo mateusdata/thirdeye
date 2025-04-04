@@ -15,7 +15,7 @@
 import React from "react";
 import { PageV1 } from "../../platform/components";
 import { IsolationForest } from "./IsolationForest";
-import { MatrixProfile } from "./MatrixProfile";
+import MatrixProfile from "./MatrixProfile";
 
 export const AdminPage: React.FunctionComponent = () => {
     return (

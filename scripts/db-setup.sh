@@ -21,4 +21,4 @@ MYSQL_PORT=${MYSQL_PORT:="3306"}
 MYSQL_HOST=${MYSQL_HOST:="127.0.0.1"}
 
 # Create a database called thirdeye and a user uthirdeye
-mysql -u root --password= -P ${MYSQL_PORT} --host ${MYSQL_HOST} < "$DB_INIT_SQL_FILE"
+mysql -u root --password=admin -P ${MYSQL_PORT} --host ${MYSQL_HOST} < "$DB_INIT_SQL_FILE"

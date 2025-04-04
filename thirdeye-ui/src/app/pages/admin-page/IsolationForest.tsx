@@ -12,29 +12,66 @@
  * See the License for the specific language governing permissions and limitations under
  * the License.
  */
+import React, { useState } from "react";
 import axios from "axios";
 import ReactECharts from "echarts-for-react";
-import React, { useState } from "react";
-import { PageV1 } from "../../platform/components";
 
-export const IsolationForest: React.FunctionComponent = () => {
-    // Estado para armazenar os dados retornados pela API
-    const [chartData, setChartData] = useState([]); // Dados para o gráfico
-    const [loading, setLoading] = useState(false); // Status de carregamento
-    const [error, setError] = useState<string | null>(null); // Mensagens de erro
+// Tipagem para os dados retornados pelo backend
+interface ChartDataPoint {
+    time: string;
+    values: number;
+    anomaly: boolean;
+}
 
-    // Estado para os valores dinâmicos do formulário
-    const [promQuery, setPromQuery] = useState("go_gc_heap_frees_bytes_total"); // Métrica padrão
-    const [startTime, setStartTime] = useState(""); // Data de início
-    const [endTime, setEndTime] = useState(""); // Data de fim
-    const [interval, setInterval] = useState("5m"); // Intervalo padrão
+// Tipagem para o payload da requisição
+interface IsolationForestPayload {
+    prom_query: string;
+    end_time: string;
+    query_duration_days: number;
+    interval: string;
+    days_train: number;
+    contamination_level: number;
+}
 
-    // Função para buscar os dados da API
+export const IsolationForest: React.FC = () => {
+    // Estados tipados
+    const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
+    const [loading, setLoading] = useState<boolean>(false);
+    const [error, setError] = useState<string | null>(null);
+
+    // Inputs do formulário
+    const [promQuery, setPromQuery] = useState<string>(
+        "go_gc_heap_frees_bytes_total"
+    );
+    const [endTime, setEndTime] = useState<string>(
+        new Date().toISOString().slice(0, 16)
+    );
+    const [queryDurationDays, setQueryDurationDays] = useState<number>(1);
+    const [interval, setInterval] = useState<string>("5m");
+    const [daysTrain, setDaysTrain] = useState<number>(1);
+    const [contaminationLevel, setContaminationLevel] = useState<number>(0.01);
+
     const fetchIsolationForestData = async (): Promise<void> => {
-        // Validação dos campos
-        if (!promQuery || !startTime || !endTime || !interval) {
-            setError("Por favor, preencha todos os campos obrigatórios!");
+        // Validação dos inputs
+        if (
+            !promQuery ||
+            !interval ||
+            queryDurationDays < 1 ||
+            daysTrain < 1 ||
+            daysTrain > queryDurationDays
+        ) {
+            //setError("Preencha todos os campos corretamente!");
+            setError(
+                "A duração da consulta deve ser maior que os dias de treinamento para que haja dados para predição."
+            );
+            return;
+        }
 
+        if (queryDurationDays === daysTrain) {
+            // setError("A duração da consulta deve ser maior que os dias de treinamento para que haja dados para predição.");
+            setError(
+                "A duração da consulta deve ser maior que os dias de treinamento para que haja dados para predição."
+            );
             return;
         }
 
@@ -42,49 +79,46 @@ export const IsolationForest: React.FunctionComponent = () => {
         setError(null);
 
         try {
-            // Configura o payload com os valores fornecidos
-            const payload = {
+            const payload: IsolationForestPayload = {
                 prom_query: promQuery,
-                start_time: new Date(startTime).toISOString(),
                 end_time: new Date(endTime).toISOString(),
+                query_duration_days: queryDurationDays,
                 interval: interval,
+                days_train: daysTrain,
+                contamination_level: contaminationLevel,
             };
 
-            // Faz a requisição para a API
-            const response = await axios.post(
-                "http://localhost:8000/isolation-forest/",
+            const response = await axios.post<{ data: ChartDataPoint[] }>(
+                "http://localhost:8003/isolation-forest",
                 payload
             );
-
-            // Atualiza os dados do gráfico
-            setChartData(response.data);
+            setChartData(response.data.data);
         } catch (err) {
             setError(
-                "Erro ao buscar os dados da API. Verifique os campos e tente novamente."
+                "Erro ao buscar os dados. Verifique os campos ou o servidor."
             );
+            console.error(err);
         } finally {
             setLoading(false);
         }
     };
 
-    // Configuração do gráfico
+    // Configuração do gráfico ECharts
     const option = {
         title: {
-            text: "Isolation Forest: Detecção de Anomalias",
+            text: "Detecção de Anomalias com Isolation Forest",
+            left: "center",
+            textStyle: { color: "#333" },
         },
-        tooltip: {
-            trigger: "axis",
-        },
+        tooltip: { trigger: "axis" },
         xAxis: {
             type: "time",
             axisLabel: {
-                formatter: (value: string) => {
+                formatter: (value: string): string => {
                     const date = new Date(value);
-
                     return date.toLocaleString("pt-BR", {
                         day: "2-digit",
                         month: "2-digit",
-                        year: "numeric",
                         hour: "2-digit",
                         minute: "2-digit",
                     });
@@ -94,203 +128,236 @@ export const IsolationForest: React.FunctionComponent = () => {
         yAxis: {
             type: "value",
             axisLabel: {
-                formatter: (value: number) => `${(value / 1e9).toFixed(2)}B`, // Valores em bilhões
+                formatter: (value: number): string =>
+                    `${(value / 1e9).toFixed(2)}B`,
             },
         },
         series: [
             {
-                name: "Data",
+                name: "Dados",
                 type: "line",
-                data: chartData.map(({ time, values }) => [time, values]),
-                lineStyle: {
-                    width: 2,
-                    color: "#8A05BE",
-                },
+                data: chartData.map((item) => [item.time, item.values]),
+                lineStyle: { color: "#8A05BE", width: 2 },
                 smooth: true,
             },
             {
-                name: "Anomalies",
+                name: "Anomalias",
                 type: "scatter",
                 data: chartData
-                    .filter(({ anomaly }) => anomaly)
-                    .map(({ time, values }) => [time, values]),
-                symbolSize: 8,
-                itemStyle: {
-                    color: "red",
-                },
+                    .filter((item) => item.anomaly)
+                    .map((item) => [item.time, item.values]),
+                symbolSize: 10,
+                itemStyle: { color: "red" },
             },
         ],
+        // Destaca visualmente o período de treinamento
+        graphic:
+            chartData.length > 0
+                ? [
+                      {
+                          type: "rect",
+                          shape: {
+                              x: 0,
+                              y: 0,
+                              width: `${
+                                  (daysTrain / queryDurationDays) * 100
+                              }%`,
+                              height: "100%",
+                          },
+                          style: { fill: "rgba(128, 128, 128, 0.2)" },
+                          z: -1,
+                      },
+                  ]
+                : [],
     };
 
-    // Renderização do componente
     return (
-        <PageV1>
-            <div style={{ padding: "60px" }}>
-                <h2
-                    style={{
-                        color: "#4CAF50",
-                        textAlign: "center",
-                        marginBottom: "20px",
-                    }}
-                >
-                    Isolation Forest - Gráfico de Anomalias
-                    <div className="bg-red-600 min-h-screen">
-                        <p>sadas</p>
-                    </div>
-                </h2>
+        <div style={{ padding: "40px", maxWidth: "1200px", margin: "0 auto" }}>
+            <h1
+                style={{
+                    textAlign: "center",
+                    color: "#4CAF50",
+                    marginBottom: "30px",
+                }}
+            >
+                Isolation Forest - Gráfico de Anomalias
+            </h1>
 
-                <div
-                    style={{
-                        background: "#fff",
-                        padding: "20px",
-                        borderRadius: "10px",
-                        boxShadow: "0px 4px 10px rgba(0,0,0,0.1)",
-                        marginBottom: "20px",
-                    }}
-                >
-                    <label
-                        style={{
-                            display: "block",
-                            marginBottom: "10px",
-                            fontWeight: "bold",
-                            color: "#333",
-                        }}
-                    >
+            {/* Formulário */}
+            <div
+                style={{
+                    background: "#fff",
+                    padding: "20px",
+                    borderRadius: "8px",
+                    boxShadow: "0 2px 10px rgba(0,0,0,0.1)",
+                }}
+            >
+                <div style={{ display: "grid", gap: "15px" }}>
+                    <label style={{ fontWeight: "bold", color: "#333" }}>
                         Métrica (Prometheus Query):
                         <input
-                            style={{
-                                display: "block",
-                                width: "100%",
-                                padding: "10px",
-                                border: "1px solid #ccc",
-                                borderRadius: "5px",
-                                marginTop: "5px",
-                            }}
                             type="text"
                             value={promQuery}
                             onChange={(e) => setPromQuery(e.target.value)}
-                        />
-                    </label>
-
-                    <label
-                        style={{
-                            display: "block",
-                            marginBottom: "10px",
-                            fontWeight: "bold",
-                            color: "#333",
-                        }}
-                    >
-                        Data de Início:
-                        <input
                             style={{
-                                display: "block",
                                 width: "100%",
-                                padding: "10px",
-                                border: "1px solid #ccc",
-                                borderRadius: "5px",
+                                padding: "8px",
+                                border: "1px solid #ddd",
+                                borderRadius: "4px",
                                 marginTop: "5px",
                             }}
-                            type="datetime-local"
-                            value={startTime}
-                            onChange={(e) => setStartTime(e.target.value)}
                         />
                     </label>
 
-                    <label
-                        style={{
-                            display: "block",
-                            marginBottom: "10px",
-                            fontWeight: "bold",
-                            color: "#333",
-                        }}
-                    >
+                    <label style={{ fontWeight: "bold", color: "#333" }}>
                         Data de Fim:
                         <input
-                            style={{
-                                display: "block",
-                                width: "100%",
-                                padding: "10px",
-                                border: "1px solid #ccc",
-                                borderRadius: "5px",
-                                marginTop: "5px",
-                            }}
                             type="datetime-local"
                             value={endTime}
                             onChange={(e) => setEndTime(e.target.value)}
+                            style={{
+                                width: "100%",
+                                padding: "8px",
+                                border: "1px solid #ddd",
+                                borderRadius: "4px",
+                                marginTop: "5px",
+                            }}
                         />
                     </label>
 
-                    <label
-                        style={{
-                            display: "block",
-                            marginBottom: "10px",
-                            fontWeight: "bold",
-                            color: "#333",
-                        }}
-                    >
-                        Intervalo:
+                    <label style={{ fontWeight: "bold", color: "#333" }}>
+                        Duração da Consulta (dias):
                         <input
+                            type="number"
+                            min={1}
+                            value={queryDurationDays}
+                            onChange={(e) =>
+                                setQueryDurationDays(Number(e.target.value))
+                            }
                             style={{
-                                display: "block",
                                 width: "100%",
-                                padding: "10px",
-                                border: "1px solid #ccc",
-                                borderRadius: "5px",
+                                padding: "8px",
+                                border: "1px solid #ddd",
+                                borderRadius: "4px",
                                 marginTop: "5px",
                             }}
+                        />
+                    </label>
+
+                    <label style={{ fontWeight: "bold", color: "#333" }}>
+                        Intervalo:
+                        <input
                             type="text"
                             value={interval}
                             onChange={(e) => setInterval(e.target.value)}
+                            style={{
+                                width: "100%",
+                                padding: "8px",
+                                border: "1px solid #ddd",
+                                borderRadius: "4px",
+                                marginTop: "5px",
+                            }}
                         />
                     </label>
 
+                    <label style={{ fontWeight: "bold", color: "#333" }}>
+                        Dias de Treinamento (1 a {queryDurationDays}):
+                        <input
+                            type="number"
+                            min={1}
+                            max={queryDurationDays}
+                            value={daysTrain}
+                            onChange={(e) =>
+                                setDaysTrain(Number(e.target.value))
+                            }
+                            style={{
+                                width: "100%",
+                                padding: "8px",
+                                border: "1px solid #ddd",
+                                borderRadius: "4px",
+                                marginTop: "5px",
+                            }}
+                        />
+                    </label>
+
+                    <label style={{ fontWeight: "bold", color: "#333" }}>
+                        Nível de Contaminação (0.001 a 0.1):
+                        <div
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                marginTop: "5px",
+                            }}
+                        >
+                            <input
+                                type="range"
+                                min="0.001"
+                                max="0.1"
+                                step="0.001"
+                                value={contaminationLevel}
+                                onChange={(e) =>
+                                    setContaminationLevel(
+                                        Number(e.target.value)
+                                    )
+                                }
+                                style={{ flex: 1 }}
+                            />
+                            <span
+                                style={{ marginLeft: "10px", minWidth: "50px" }}
+                            >
+                                {contaminationLevel.toFixed(3)}
+                            </span>
+                        </div>
+                    </label>
+
                     <button
+                        onClick={fetchIsolationForestData}
                         style={{
-                            padding: "10px 20px",
+                            padding: "10px",
                             backgroundColor: "#4CAF50",
                             color: "white",
                             border: "none",
-                            borderRadius: "5px",
+                            borderRadius: "4px",
                             cursor: "pointer",
-                            width: "100%",
                             fontSize: "16px",
-                            marginTop: "10px",
                         }}
-                        onClick={fetchIsolationForestData}
                     >
                         Buscar Dados
                     </button>
                 </div>
-
-                {error && (
-                    <div
-                        style={{
-                            color: "red",
-                            marginBottom: "20px",
-                            textAlign: "center",
-                        }}
-                    >
-                        {error}
-                    </div>
-                )}
-
-                {loading ? (
-                    <p style={{ textAlign: "center" }}>Carregando...</p>
-                ) : (
-                    <div
-                        style={{
-                            width: "100%",
-                            height: "400px",
-                            margin: "0 auto",
-                            background: "#fff",
-                            borderRadius: "10px",
-                            boxShadow: "0px 4px 10px rgba(0,0,0,0.1)",
-                        }}
-                    >
-                        <ReactECharts option={option} />
-                    </div>
-                )}
             </div>
-        </PageV1>
+
+            {/* Mensagem de erro ou loading */}
+            {error && (
+                <div
+                    style={{
+                        color: "red",
+                        textAlign: "center",
+                        margin: "20px 0",
+                    }}
+                >
+                    {error}
+                </div>
+            )}
+            {loading && (
+                <div style={{ textAlign: "center", margin: "20px 0" }}>
+                    Carregando...
+                </div>
+            )}
+
+            {/* Gráfico */}
+            {!loading && chartData.length > 0 && (
+                <div
+                    style={{
+                        marginTop: "30px",
+                        background: "#fff",
+                        borderRadius: "8px",
+                        boxShadow: "0 2px 10px rgba(0,0,0,0.1)",
+                    }}
+                >
+                    <ReactECharts option={option} style={{ height: "500px" }} />
+                </div>
+            )}
+        </div>
     );
 };
